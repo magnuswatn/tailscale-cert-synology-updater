@@ -3,7 +3,7 @@ tailscale-cert-synology-updater
 
 This is a small application that updates the admin interface of your Synology NAS with the cert from Tailscale (kind of).
 
-It is made for DSM 6, which does not support EC keys, which Tailscale [is hardcoded to generate](https://github.com/tailscale/tailscale/blob/9bd3b5b89c60534a9066902ae54b52f5797365bd/ipn/localapi/cert.go#L379), so it generates it's own RSA key and piggybacks on Tailscale's authorization to get it's own certificate. It then install this for the DSM web console.
+It is made for DSM 6, which does not support EC keys, which Tailscale [is hardcoded to generate](https://github.com/tailscale/tailscale/blob/9bd3b5b89c60534a9066902ae54b52f5797365bd/ipn/localapi/cert.go#L284), so it generates it's own RSA key and piggybacks on Tailscale's authorization to get it's own certificate. It then install this for the DSM web console.
 
 
 ## Limitations
@@ -73,7 +73,7 @@ Then SSH into the NAS and install the app. It can be done either through the ins
 ```
 sudo mkdir "/volume1/@tailscale-cert-synology-updater/"
 sudo chown "$USER:" "/volume1/@tailscale-cert-synology-updater/"
-curl "https://raw.githubusercontent.com/magnuswatn/tailscale-cert-synology-updater/main/requirements.txt" | bash
+curl "https://raw.githubusercontent.com/magnuswatn/tailscale-cert-synology-updater/main/install.sh" | bash
 ```
 
 or manually:
@@ -88,6 +88,8 @@ python3 -m venv venv
 ```
 
 Then install a nightly scheduled task via the Synology Control Panel, running the command: `/volume1/@tailscale-cert-synology-updater/venv/bin/python /volume1/@tailscale-cert-synology-updater/tailscale_cert_synology_updater.py mynas.something-something.ts.net` (update the path and your Tailscale domain name). It must run as root.
+
+Run the task manually. This should replace your dummycert with a working Let's Encrypt cert for your Tailscale domain!
 
 The app will check if the certs need updating every time it is run, and if Tailscale gives us a new cert ([14 days prior to expiry](https://github.com/tailscale/tailscale/blob/9bd3b5b89c60534a9066902ae54b52f5797365bd/ipn/localapi/cert.go#L106)) then it will retrieve a new cert and update it. It will restart nginx after the cert has been replaced.
 

@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 main() {
-  if ! command -v python3; then
+  if ! command -v python3 &> /dev/null; then
     echo "python3 not found. Please install via Synology Package Center"
     exit 1
   fi

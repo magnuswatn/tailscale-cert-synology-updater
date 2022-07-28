@@ -1,0 +1,35 @@
+{
+   "XSYQT3" : {
+      "desc" : "",
+      "services" : [
+         {
+            "display_name" : "FTPS",
+            "isPkg" : false,
+            "owner" : "root",
+            "service" : "ftpd",
+            "subscriber" : "smbftpd"
+         },
+         {
+            "display_name" : "Hyper Backup Vault",
+            "display_name_i18n" : "HyperBackupVault:app:package_name",
+            "isPkg" : true,
+            "owner" : "root",
+            "service" : "HyperBackupVault",
+            "subscriber" : "HyperBackupVault"
+         }
+      ]
+   },
+   "xyFnPF" : {
+      "desc" : "",
+      "services" : [
+         {
+            "display_name" : "DSM Desktop Service",
+            "display_name_i18n" : "common:web_desktop",
+            "isPkg" : false,
+            "owner" : "root",
+            "service" : "default",
+            "subscriber" : "system"
+         }
+      ]
+   }
+}

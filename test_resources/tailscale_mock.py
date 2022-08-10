@@ -1,15 +1,30 @@
 import socketserver
+import sys
+import traceback
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
+from acme import client, messages
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.serialization import (
+    Encoding,
+    NoEncryption,
+    PrivateFormat,
+)
 from cryptography.x509.oid import NameOID
+from josepy.jwa import ES256
+from josepy.jwk import JWKEC
 
 ONE_DAY = timedelta(1, 0, 0)
+LETSENCRYPT_DIRECTORY = "https://pebble:14000/dir"
+
+TAILSCALE_DIRECTORY = Path("/var/packages/Tailscale/etc")
+TAILSCALE_ACME_KEY = TAILSCALE_DIRECTORY.joinpath("certs/acme-account.key.pem")
 
 
 class TailscaleMock:
@@ -19,8 +34,68 @@ class TailscaleMock:
         self.server = None
         self.requesthandler = None
         self.backdate = False
+        self.acme = False
 
-    def _create_cert(self) -> bytes:
+    def _get_acme_cert(self, domain):
+        private_key = ec.generate_private_key(curve=ec.SECP256R1)  # type: ignore
+
+        TAILSCALE_ACME_KEY.parent.mkdir(parents=True, exist_ok=True)
+        TAILSCALE_ACME_KEY.write_bytes(
+            private_key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption())
+        )
+
+        acme_key = JWKEC(key=private_key)
+        network = client.ClientNetwork(acme_key, alg=ES256)
+
+        directory = messages.Directory.from_json(
+            network.get(LETSENCRYPT_DIRECTORY).json()
+        )
+        acme_client = client.ClientV2(directory, network)
+
+        new_regr = messages.NewRegistration.from_data(
+            email="dummyboi@watn.no", terms_of_service_agreed=True
+        )
+        acme_client.new_account(new_regr)
+        acme_client = acme_client
+
+        private_key = ec.generate_private_key(curve=ec.SECP256R1)  # type: ignore
+
+        request = (
+            x509.CertificateSigningRequestBuilder()
+            .subject_name(
+                x509.Name(
+                    [
+                        x509.NameAttribute(NameOID.COMMON_NAME, domain),
+                    ]
+                )
+            )
+            .add_extension(
+                x509.SubjectAlternativeName([x509.DNSName(domain)]),
+                critical=False,
+            )
+            .sign(private_key, hashes.SHA256())
+        ).public_bytes(Encoding.PEM)
+
+        order = acme_client.new_order(request)
+
+        for authz in order.authorizations:
+            for challenge in authz.body.challenges:  # type: ignore
+                if challenge.typ != "dns-01":
+                    continue
+                response, validation = challenge.response_and_validation(acme_key)
+                acme_client.answer_challenge(challenge, response)
+
+        order = acme_client.poll_and_finalize(
+            order, datetime.now() + timedelta(seconds=90)
+        )
+
+        self.last_cert = x509.load_pem_x509_certificate(
+            order.fullchain_pem.encode("ASCII")
+        )
+
+        return order.fullchain_pem.encode("ASCII")
+
+    def _create_selfsigned_cert(self, domain) -> bytes:
 
         private_key = ec.generate_private_key(curve=ec.SECP256R1)  # type: ignore
 
@@ -35,14 +110,14 @@ class TailscaleMock:
             .issuer_name(
                 x509.Name(
                     [
-                        x509.NameAttribute(NameOID.COMMON_NAME, "certiboi"),
+                        x509.NameAttribute(NameOID.COMMON_NAME, domain),
                     ]
                 )
             )
             .subject_name(
                 x509.Name(
                     [
-                        x509.NameAttribute(NameOID.COMMON_NAME, "certiboi"),
+                        x509.NameAttribute(NameOID.COMMON_NAME, domain),
                     ]
                 )
             )
@@ -63,6 +138,13 @@ class TailscaleMock:
 
         return cert.public_bytes(serialization.Encoding.PEM)
 
+    def _get_cert(self, domain: str):
+        return (
+            self._get_acme_cert(domain)
+            if self.acme
+            else self._create_selfsigned_cert(domain)
+        )
+
     @classmethod
     def create(cls, socket_path):
         this = cls(socket_path)
@@ -73,18 +155,30 @@ class TailscaleMock:
                 return (request, ["local", 0])
 
         class HttpRequestHandler(BaseHTTPRequestHandler):
+
+            CERT_URL = "/localapi/v0/cert/"
+
             def do_GET(self):
                 url = urlparse(self.path)
 
-                if not url.path.startswith("/localapi/v0/cert/"):
+                if not url.path.startswith(self.CERT_URL):
                     raise Exception(f"Did not expect path: {self.path}")
 
                 if not url.query == "type=cert":
                     raise Exception(f"Did not expect query: {url.query}")
 
-                content = this._create_cert()
+                domain = url.path[len(self.CERT_URL) :]
 
-                self.send_response(200, "OK")
+                try:
+                    content = this._get_cert(domain)
+                    status = (200, "OK")
+                except Exception:
+                    content = "".join(
+                        traceback.format_exception(*sys.exc_info())
+                    ).encode()
+                    status = (500, "Internal Server Error")
+
+                self.send_response(*status)
                 self.send_header("Content-Length", str(len(content)))
                 self.end_headers()
                 self.wfile.write(content)

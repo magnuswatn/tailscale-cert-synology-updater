@@ -12,6 +12,8 @@ cryptography = "*"
 [dev-packages]
 black = "*"
 pytest = "*"
+mypy = "*"
+types-requests = "*"
 
 [requires]
-python_version = "3.9"
+python_version = "3.8"

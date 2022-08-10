@@ -103,4 +103,4 @@ If it fails with `The Tailscale acme client did not have a valid authorization f
 
 ## Developing
 
-To test with a "Synology like" filesystem, use the Docker container. Build it with `docker build -f test_resources/Dockerfile .`. When run it will run the test cases.
+Docker Compose is used to test with a "Synology like" filesystem, and Pebble as an ACME server. Build and start with `docker-compose up -d`, and then run the tests with `docker-compose exec nas python -um pytest`.

@@ -131,69 +131,74 @@ class TailscaleClient:
         return x509.load_pem_x509_certificate(response.content)
 
 
-def create_csr(domain: str) -> RequestWithKey:
-    private_key = rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=2048,
-    )
-    request = (
-        x509.CertificateSigningRequestBuilder()
-        .subject_name(
-            x509.Name(
-                [
-                    x509.NameAttribute(NameOID.COMMON_NAME, domain),
-                ]
+class CertRetriever:
+    def __init__(self, directory_url: str):
+        self.directory_url = directory_url
+
+    def _create_csr(self, domain: str) -> RequestWithKey:
+        private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048,
+        )
+        request = (
+            x509.CertificateSigningRequestBuilder()
+            .subject_name(
+                x509.Name(
+                    [
+                        x509.NameAttribute(NameOID.COMMON_NAME, domain),
+                    ]
+                )
             )
-        )
-        .add_extension(
-            x509.SubjectAlternativeName([x509.DNSName(domain)]), critical=False
-        )
-        .sign(private_key, hashes.SHA256())
-    )
-
-    return RequestWithKey(
-        req=request.public_bytes(Encoding.PEM),
-        key=private_key.private_bytes(
-            Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()
-        ),
-    )
-
-
-def get_new_cert(domain: str) -> CertWithKey:
-    if not TAILSCALE_ACME_KEY.exists():
-        raise TailscaleCertSynologyUpdaterException(
-            "Did not find the Tailscale acme account key"
+            .add_extension(
+                x509.SubjectAlternativeName([x509.DNSName(domain)]), critical=False
+            )
+            .sign(private_key, hashes.SHA256())
         )
 
-    jwk = JWK.load(TAILSCALE_ACME_KEY.read_bytes())
-    network = client.ClientNetwork(jwk, alg=ES256)
-
-    directory = messages.Directory.from_json(network.get(LETSENCRYPT_DIRECTORY).json())
-    acme_client = client.ClientV2(directory, network)
-
-    # Tailscale only stores the account key, not the Key ID,
-    # so we need to query the CA to update our registration.
-    regr = acme_client.query_registration(
-        messages.RegistrationResource(body=messages.Registration())
-    )
-    if regr.body.status != messages.STATUS_VALID.name:
-        raise TailscaleCertSynologyUpdaterException(
-            f"Tailscale acme account was not valid. Had status: {regr.body.status}"
+        return RequestWithKey(
+            req=request.public_bytes(Encoding.PEM),
+            key=private_key.private_bytes(
+                Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()
+            ),
         )
 
-    req_with_key = create_csr(domain)
+    def get_new_cert(self, domain: str) -> CertWithKey:
+        if not TAILSCALE_ACME_KEY.exists():
+            raise TailscaleCertSynologyUpdaterException(
+                "Did not find the Tailscale acme account key"
+            )
 
-    order = acme_client.new_order(req_with_key.req)
-    if order.body.status != messages.STATUS_READY:
-        raise TailscaleCertSynologyUpdaterException(
-            f"The Tailscale acme client did not have a valid "
-            f"authorization for this domain. Delete the Tailscale cert and try again. "
-            f"Order got status: {order.body.status}"
+        jwk = JWK.load(TAILSCALE_ACME_KEY.read_bytes())
+        network = client.ClientNetwork(jwk, alg=ES256)
+
+        directory = messages.Directory.from_json(network.get(self.directory_url).json())
+        acme_client = client.ClientV2(directory, network)
+
+        # Tailscale only stores the account key, not the Key ID,
+        # so we need to query the CA to update our registration.
+        regr = acme_client.query_registration(
+            messages.RegistrationResource(body=messages.Registration())
+        )
+        if regr.body.status != messages.STATUS_VALID.name:
+            raise TailscaleCertSynologyUpdaterException(
+                f"Tailscale acme account was not valid. Had status: {regr.body.status}"
+            )
+
+        req_with_key = self._create_csr(domain)
+
+        order = acme_client.new_order(req_with_key.req)
+        if order.body.status != messages.STATUS_READY:
+            raise TailscaleCertSynologyUpdaterException(
+                f"The Tailscale acme client did not have a valid "
+                f"authorization for this domain. Delete the Tailscale cert and try again. "
+                f"Order got status: {order.body.status}"
+            )
+
+        order = acme_client.finalize_order(
+            order, datetime.now() + timedelta(seconds=90)
         )
 
-    order = acme_client.finalize_order(order, datetime.now() + timedelta(seconds=90))
-
-    return CertWithKey(order.fullchain_pem, req_with_key.key)
+        return CertWithKey(order.fullchain_pem, req_with_key.key)
 
 
 def restart_services():
@@ -243,7 +248,7 @@ def main():
         domain,
         SynologyCertConfig.create(),
         TailscaleClient.create(),
-        get_new_cert,
+        CertRetriever(LETSENCRYPT_DIRECTORY).get_new_cert,
     )
 
 

@@ -1,0 +1,27 @@
+services:
+  nas:
+    build:
+      context: .
+      dockerfile: test_resources/Dockerfile
+    environment:
+      - REQUESTS_CA_BUNDLE=/opt/tailscale_cert_synology_updater/repo/test_resources/pebble.minica.pem
+      - RUNNING_IN_DOCKER=true
+    depends_on:
+      - pebble
+    volumes:
+      - .:/opt/tailscale_cert_synology_updater/repo/
+    working_dir: /opt/tailscale_cert_synology_updater/repo
+    command: bash -c "trap 'exit 0' SIGTERM; while true; do sleep 2; done"
+  pebble:
+    image: letsencrypt/pebble:latest
+    command: pebble -config /test/config/pebble-config.json -strict
+    ports:
+      - 14000:14000  # HTTPS ACME API
+      - 15000:15000  # HTTPS Management API
+    environment:
+      - PEBBLE_WFE_NONCEREJECT=0
+      - PEBBLE_VA_NOSLEEP=1
+      - PEBBLE_VA_ALWAYS_VALID=1
+      # This is critical, as our whole deal here
+      # is about authz reuse
+      - PEBBLE_AUTHZREUSE=100

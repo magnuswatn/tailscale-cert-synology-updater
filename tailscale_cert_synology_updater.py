@@ -100,7 +100,6 @@ class SynologyCertConfig:
         return cls(certs)
 
     def get_tailscale_cert(self) -> Optional[SynologyCert]:
-
         for cert in self.certs:
             if cert.desc == CERT_DESC:
                 return cert
@@ -109,7 +108,7 @@ class SynologyCertConfig:
 
 
 class TailscaleClient:
-    TAILSCALE_CERT_URL = "http://./localapi/v0/cert/{}"
+    TAILSCALE_CERT_URL = "http://local-tailscaled.sock/localapi/v0/cert/{}"
     TIMEOUT = 600.0  # initial cert retrival can take a while
 
     def __init__(self, client: httpx.Client):

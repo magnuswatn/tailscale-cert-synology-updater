@@ -4,7 +4,7 @@ import traceback
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 from urllib.parse import urlparse
 
 from acme import client, messages
@@ -96,7 +96,6 @@ class TailscaleMock:
         return order.fullchain_pem.encode("ASCII")
 
     def _create_selfsigned_cert(self, domain) -> bytes:
-
         private_key = ec.generate_private_key(curve=ec.SECP256R1)  # type: ignore
 
         not_valid_before = (
@@ -155,10 +154,34 @@ class TailscaleMock:
                 return (request, ["local", 0])
 
         class HttpRequestHandler(BaseHTTPRequestHandler):
-
             CERT_URL = "/localapi/v0/cert/"
+            INVALID_REQ_ERROR = b"invalid localapi request"
+
+            def is_valid_request(self) -> bool:
+                # https://github.com/tailscale/tailscale/blob/8e4a29433f48b192f30da3a164e6ac3b6674b0bc/ipn/localapi/localapi.go#L199
+                if self.headers["origin"]:
+                    return False
+
+                if self.headers["referer"]:
+                    return False
+
+                host = self.headers["host"]
+                if not host or host == "local-tailscaled.sock":
+                    return True
+
+                return False
+
+            def return_resp(self, status: Tuple[int, str], content: bytes) -> None:
+                self.send_response(*status)
+                self.send_header("Content-Length", str(len(content)))
+                self.end_headers()
+                self.wfile.write(content)
 
             def do_GET(self):
+                if not self.is_valid_request():
+                    self.return_resp((403, "Forbidden"), self.INVALID_REQ_ERROR)
+                    return
+
                 url = urlparse(self.path)
 
                 if not url.path.startswith(self.CERT_URL):
@@ -178,10 +201,7 @@ class TailscaleMock:
                     ).encode()
                     status = (500, "Internal Server Error")
 
-                self.send_response(*status)
-                self.send_header("Content-Length", str(len(content)))
-                self.end_headers()
-                self.wfile.write(content)
+                self.return_resp(status, content)
 
         this.requesthandler = HttpRequestHandler
         this.server = UnixSocketHttpServer

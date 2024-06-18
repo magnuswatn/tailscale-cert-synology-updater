@@ -3,7 +3,7 @@ tailscale-cert-synology-updater
 
 This is a small application that updates the admin interface of your Synology NAS with the cert from Tailscale (kind of).
 
-It is made for DSM 6, which does not support EC keys, which Tailscale [is hardcoded to generate](https://github.com/tailscale/tailscale/blob/9bd3b5b89c60534a9066902ae54b52f5797365bd/ipn/localapi/cert.go#L284), so it generates it's own RSA key and piggybacks on Tailscale's authorization to get it's own certificate. It then install this for the DSM web console.
+It is made for DSM 6, which does not support EC keys, which Tailscale [is hardcoded to generate](https://github.com/tailscale/tailscale/blob/9bd3b5b89c60534a9066902ae54b52f5797365bd/ipn/localapi/cert.go#L284), so it generates its own RSA key and piggybacks on Tailscale's authorization to get its own certificate. It then install this for the DSM web console.
 
 
 ## Limitations
